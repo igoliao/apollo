@@ -16,8 +16,6 @@
 
 #include "modules/prediction/common/semantic_map.h"
 
-#include <cmath>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -25,8 +23,8 @@
 #include "cyber/common/log.h"
 #include "cyber/task/task.h"
 #include "modules/common/configs/config_gflags.h"
+#include "modules/common/util/point_factory.h"
 #include "modules/common/util/string_util.h"
-#include "modules/common/util/util.h"
 #include "modules/map/hdmap/hdmap_util.h"
 #include "modules/prediction/common/prediction_gflags.h"
 #include "modules/prediction/common/prediction_system_gflags.h"
@@ -36,10 +34,29 @@
 namespace apollo {
 namespace prediction {
 
+namespace {
+
+bool ValidFeatureHistory(const ObstacleHistory& obstacle_history,
+                         const double curr_base_x, const double curr_base_y) {
+  if (obstacle_history.feature_size() == 0) {
+    return false;
+  }
+
+  double center_x = curr_base_x + FLAGS_base_image_half_range;
+  double center_y = curr_base_y + FLAGS_base_image_half_range;
+
+  const Feature& feature = obstacle_history.feature(0);
+  double diff_x = feature.position().x() - center_x;
+  double diff_y = feature.position().y() - center_y;
+  double distance = std::hypot(diff_x, diff_y);
+  return distance < FLAGS_caution_distance_threshold;
+}
+
+}  // namespace
+
 SemanticMap::SemanticMap() {}
 
 void SemanticMap::Init() {
-  curr_base_img_ = cv::Mat(2000, 2000, CV_8UC3, cv::Scalar(0, 0, 0));
   curr_img_ = cv::Mat(2000, 2000, CV_8UC3, cv::Scalar(0, 0, 0));
   obstacle_id_history_map_.clear();
 }
@@ -52,26 +69,24 @@ void SemanticMap::RunCurrFrame(
   }
 
   ego_feature_ = obstacle_id_history_map.at(FLAGS_ego_vehicle_id).feature(0);
-  // TODO(all): move to somewhere else
   if (!FLAGS_enable_async_draw_base_image) {
     double x = ego_feature_.position().x();
     double y = ego_feature_.position().y();
     curr_base_x_ = x - FLAGS_base_image_half_range;
     curr_base_y_ = y - FLAGS_base_image_half_range;
     DrawBaseMap(x, y, curr_base_x_, curr_base_y_);
-    base_img_.copyTo(curr_base_img_);
+    base_img_.copyTo(curr_img_);
   } else {
-    base_img_.copyTo(curr_base_img_);
+    base_img_.copyTo(curr_img_);
     curr_base_x_ = base_x_;
     curr_base_y_ = base_y_;
     task_future_ = cyber::Async(&SemanticMap::DrawBaseMapThread, this);
+    // This is only for the first frame without base image yet
+    if (!started_drawing_) {
+      started_drawing_ = true;
+      return;
+    }
   }
-
-  if (!base_img_drawn_) {
-    return;
-  }
-
-  curr_base_img_.copyTo(curr_img_);
 
   // Draw all obstacles_history
   for (const auto obstacle_id_history_pair : obstacle_id_history_map) {
@@ -94,17 +109,16 @@ void SemanticMap::RunCurrFrame(
 
 void SemanticMap::DrawBaseMap(const double x, const double y,
                               const double base_x, const double base_y) {
-  base_img_drawn_ = false;
   base_img_ = cv::Mat(2000, 2000, CV_8UC3, cv::Scalar(0, 0, 0));
-  common::PointENU center_point = common::util::MakePointENU(x, y, 0.0);
+  common::PointENU center_point = common::util::PointFactory::ToPointENU(x, y);
   DrawRoads(center_point, base_x, base_y);
   DrawJunctions(center_point, base_x, base_y);
   DrawCrosswalks(center_point, base_x, base_y);
   DrawLanes(center_point, base_x, base_y);
-  base_img_drawn_ = true;
 }
 
 void SemanticMap::DrawBaseMapThread() {
+  std::lock_guard<std::mutex> lock(draw_base_map_thread_mutex_);
   double x = ego_feature_.position().x();
   double y = ego_feature_.position().y();
   base_x_ = x - FLAGS_base_image_half_range;
@@ -353,6 +367,12 @@ bool SemanticMap::GetMapById(const int obstacle_id, cv::Mat* feature_map) {
       obstacle_id_history_map_.end()) {
     return false;
   }
+  const auto& obstacle_history = obstacle_id_history_map_[obstacle_id];
+
+  if (!ValidFeatureHistory(obstacle_history, curr_base_x_, curr_base_y_)) {
+    return false;
+  }
+
   cv::Mat output_img =
       CropByHistory(obstacle_id_history_map_[obstacle_id],
                     cv::Scalar(0, 0, 255), curr_base_x_, curr_base_y_);

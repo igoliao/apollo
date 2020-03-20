@@ -14,9 +14,9 @@
  * limitations under the License.
  *****************************************************************************/
 
-#include <gtest/gtest.h>
 #include <memory>
 #include <vector>
+#include "gtest/gtest.h"
 
 #include "cyber/cyber.h"
 #include "cyber/init.h"
@@ -38,9 +38,7 @@ class ParameterServerTest : public ::testing::Test {
     ps_.reset(new ParameterServer(node_));
   }
 
-  virtual void TearDown() {
-    ps_.reset();
-  }
+  virtual void TearDown() { ps_.reset(); }
 
  protected:
   std::shared_ptr<Node> node_;

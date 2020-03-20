@@ -16,11 +16,6 @@
 
 #include "modules/prediction/common/message_process.h"
 
-#include <algorithm>
-#include <iomanip>
-#include <limits>
-#include <vector>
-
 #include "cyber/common/file.h"
 #include "cyber/record/record_reader.h"
 
@@ -31,6 +26,7 @@
 #include "modules/prediction/common/prediction_gflags.h"
 #include "modules/prediction/common/prediction_system_gflags.h"
 #include "modules/prediction/common/validation_checker.h"
+#include "modules/prediction/container/storytelling/storytelling_container.h"
 #include "modules/prediction/evaluator/evaluator_manager.h"
 #include "modules/prediction/predictor/predictor_manager.h"
 #include "modules/prediction/proto/offline_features.pb.h"
@@ -43,25 +39,28 @@ namespace apollo {
 namespace prediction {
 
 using apollo::common::adapter::AdapterConfig;
+using apollo::cyber::record::RecordMessage;
+using apollo::cyber::record::RecordReader;
 using apollo::localization::LocalizationEstimate;
 using apollo::perception::PerceptionObstacle;
 using apollo::perception::PerceptionObstacles;
 using apollo::planning::ADCTrajectory;
-using cyber::record::RecordMessage;
-using cyber::record::RecordReader;
+using apollo::storytelling::Stories;
 
 bool MessageProcess::Init() {
-  // Load prediction conf
-  PredictionConf prediction_conf;
-  if (!cyber::common::GetProtoFromFile(FLAGS_prediction_conf_file,
-                                       &prediction_conf)) {
-    AERROR << "Unable to load prediction conf file: "
-           << FLAGS_prediction_conf_file;
+  InitContainers();
+  InitEvaluators();
+  InitPredictors();
+
+  if (!FLAGS_use_navigation_mode && !PredictionMap::Ready()) {
+    AERROR << "Map cannot be loaded.";
     return false;
   }
-  ADEBUG << "Prediction config file is loaded into: "
-         << prediction_conf.ShortDebugString();
 
+  return true;
+}
+
+bool MessageProcess::InitContainers() {
   common::adapter::AdapterManagerConfig adapter_conf;
   if (!cyber::common::GetProtoFromFile(FLAGS_prediction_adapter_config_filename,
                                        &adapter_conf)) {
@@ -72,22 +71,42 @@ bool MessageProcess::Init() {
   ADEBUG << "Adapter config file is loaded into: "
          << adapter_conf.ShortDebugString();
 
-  // Initialization of all managers
   ContainerManager::Instance()->Init(adapter_conf);
-  EvaluatorManager::Instance()->Init(prediction_conf);
-  PredictorManager::Instance()->Init(prediction_conf);
-
-  if (!FLAGS_use_navigation_mode && !PredictionMap::Ready()) {
-    AERROR << "Map cannot be loaded.";
-    return false;
-  }
-
   return true;
 }
 
-void MessageProcess::OnPerception(
-    const perception::PerceptionObstacles& perception_obstacles,
-    PredictionObstacles* const prediction_obstacles) {
+bool MessageProcess::InitEvaluators() {
+  PredictionConf prediction_conf;
+  if (!cyber::common::GetProtoFromFile(FLAGS_prediction_conf_file,
+                                       &prediction_conf)) {
+    AERROR << "Unable to load prediction conf file: "
+           << FLAGS_prediction_conf_file;
+    return false;
+  }
+  ADEBUG << "Prediction config file is loaded into: "
+         << prediction_conf.ShortDebugString();
+
+  EvaluatorManager::Instance()->Init(prediction_conf);
+  return true;
+}
+
+bool MessageProcess::InitPredictors() {
+  PredictionConf prediction_conf;
+  if (!cyber::common::GetProtoFromFile(FLAGS_prediction_conf_file,
+                                       &prediction_conf)) {
+    AERROR << "Unable to load prediction conf file: "
+           << FLAGS_prediction_conf_file;
+    return false;
+  }
+  ADEBUG << "Prediction config file is loaded into: "
+         << prediction_conf.ShortDebugString();
+
+  PredictorManager::Instance()->Init(prediction_conf);
+  return true;
+}
+
+void MessageProcess::ContainerProcess(
+    const perception::PerceptionObstacles& perception_obstacles) {
   ADEBUG << "Received a perception message ["
          << perception_obstacles.ShortDebugString() << "].";
 
@@ -109,6 +128,12 @@ void MessageProcess::OnPerception(
       ContainerManager::Instance()->GetContainer<ADCTrajectoryContainer>(
           AdapterConfig::PLANNING_TRAJECTORY);
   CHECK_NOTNULL(ptr_ego_trajectory_container);
+
+  // Get storytelling_container
+  auto ptr_storytelling_container =
+      ContainerManager::Instance()->GetContainer<StoryTellingContainer>(
+          AdapterConfig::STORYTELLING);
+  CHECK_NOTNULL(ptr_storytelling_container);
 
   // Insert ADC into the obstacle_container.
   const PerceptionObstacle* ptr_ego_vehicle =
@@ -156,6 +181,22 @@ void MessageProcess::OnPerception(
 
   // Analyze RightOfWay for the caution obstacles
   RightOfWay::Analyze();
+}
+
+void MessageProcess::OnPerception(
+    const perception::PerceptionObstacles& perception_obstacles,
+    PredictionObstacles* const prediction_obstacles) {
+  ContainerProcess(perception_obstacles);
+
+  auto ptr_obstacles_container =
+      ContainerManager::Instance()->GetContainer<ObstaclesContainer>(
+          AdapterConfig::PERCEPTION_OBSTACLES);
+  CHECK_NOTNULL(ptr_obstacles_container);
+
+  auto ptr_ego_trajectory_container =
+      ContainerManager::Instance()->GetContainer<ADCTrajectoryContainer>(
+          AdapterConfig::PLANNING_TRAJECTORY);
+  CHECK_NOTNULL(ptr_ego_trajectory_container);
 
   // Insert features to FeatureOutput for offline_mode
   if (FLAGS_prediction_offline_mode == PredictionConstants::kDumpFeatureProto) {
@@ -184,14 +225,16 @@ void MessageProcess::OnPerception(
   }
 
   // Make evaluations
-  EvaluatorManager::Instance()->Run();
+  EvaluatorManager::Instance()->Run(ptr_obstacles_container);
   if (FLAGS_prediction_offline_mode ==
           PredictionConstants::kDumpDataForLearning ||
       FLAGS_prediction_offline_mode == PredictionConstants::kDumpFrameEnv) {
     return;
   }
   // Make predictions
-  PredictorManager::Instance()->Run();
+  PredictorManager::Instance()->Run(perception_obstacles,
+                                    ptr_ego_trajectory_container,
+                                    ptr_obstacles_container);
 
   // Get predicted obstacles
   *prediction_obstacles = PredictorManager::Instance()->prediction_obstacles();
@@ -202,7 +245,7 @@ void MessageProcess::OnLocalization(
   auto ptr_ego_pose_container =
       ContainerManager::Instance()->GetContainer<PoseContainer>(
           AdapterConfig::LOCALIZATION);
-  CHECK(ptr_ego_pose_container != nullptr);
+  ACHECK(ptr_ego_pose_container != nullptr);
   ptr_ego_pose_container->Insert(localization);
 
   ADEBUG << "Received a localization message ["
@@ -213,10 +256,29 @@ void MessageProcess::OnPlanning(const planning::ADCTrajectory& adc_trajectory) {
   auto ptr_ego_trajectory_container =
       ContainerManager::Instance()->GetContainer<ADCTrajectoryContainer>(
           AdapterConfig::PLANNING_TRAJECTORY);
-  CHECK(ptr_ego_trajectory_container != nullptr);
+  ACHECK(ptr_ego_trajectory_container != nullptr);
   ptr_ego_trajectory_container->Insert(adc_trajectory);
 
   ADEBUG << "Received a planning message [" << adc_trajectory.ShortDebugString()
+         << "].";
+
+  auto ptr_storytelling_container =
+      ContainerManager::Instance()->GetContainer<StoryTellingContainer>(
+          AdapterConfig::STORYTELLING);
+  CHECK_NOTNULL(ptr_storytelling_container);
+  ptr_ego_trajectory_container->SetJunction(
+      ptr_storytelling_container->ADCJunctionId(),
+      ptr_storytelling_container->ADCDistanceToJunction());
+}
+
+void MessageProcess::OnStoryTelling(const Stories& story) {
+  auto ptr_storytelling_container =
+      ContainerManager::Instance()->GetContainer<StoryTellingContainer>(
+          AdapterConfig::STORYTELLING);
+  CHECK_NOTNULL(ptr_storytelling_container);
+  ptr_storytelling_container->Insert(story);
+
+  ADEBUG << "Received a storytelling message [" << story.ShortDebugString()
          << "].";
 }
 

@@ -18,7 +18,6 @@
  * @file
  **/
 #include <string>
-#include <vector>
 
 #include "modules/planning/scenarios/yield_sign/stage_creep.h"
 
@@ -60,7 +59,7 @@ Stage::StageStatus YieldSignStageCreep::Process(
     AERROR << "YieldSignStageCreep planning error";
   }
 
-  if (GetContext()->current_yield_sign_overlap_ids.size() == 0) {
+  if (GetContext()->current_yield_sign_overlap_ids.empty()) {
     return FinishScenario();
   }
 

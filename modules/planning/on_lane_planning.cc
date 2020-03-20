@@ -21,7 +21,9 @@
 #include <list>
 #include <utility>
 
+#include "absl/strings/str_cat.h"
 #include "cyber/common/file.h"
+#include "cyber/common/log.h"
 #include "gtest/gtest_prod.h"
 
 #include "modules/routing/proto/routing.pb.h"
@@ -44,7 +46,7 @@
 
 namespace apollo {
 namespace planning {
-
+using apollo::canbus::Chassis;
 using apollo::common::EngageAdvice;
 using apollo::common::ErrorCode;
 using apollo::common::Status;
@@ -58,7 +60,6 @@ using apollo::hdmap::HDMapUtil;
 using apollo::planning_internal::SLFrameDebug;
 using apollo::planning_internal::SpeedPlan;
 using apollo::planning_internal::STGraphDebug;
-using apollo::routing::RoutingResponse;
 
 OnLanePlanning::~OnLanePlanning() {
   if (reference_line_provider_) {
@@ -85,7 +86,7 @@ Status OnLanePlanning::Init(const PlanningConfig& config) {
 
   planner_dispatcher_->Init();
 
-  CHECK(apollo::cyber::common::GetProtoFromFile(
+  ACHECK(apollo::cyber::common::GetProtoFromFile(
       FLAGS_traffic_rule_config_filename, &traffic_rule_configs_))
       << "Failed to load traffic rule config file "
       << FLAGS_traffic_rule_config_filename;
@@ -98,7 +99,7 @@ Status OnLanePlanning::Init(const PlanningConfig& config) {
 
   // load map
   hdmap_ = HDMapUtil::BaseMapPtr();
-  CHECK(hdmap_) << "Failed to load map";
+  ACHECK(hdmap_) << "Failed to load map";
 
   // instantiate reference line provider
   reference_line_provider_ = std::make_unique<ReferenceLineProvider>(hdmap_);
@@ -135,19 +136,19 @@ Status OnLanePlanning::InitFrame(const uint32_t sequence_num,
   }
   DCHECK_EQ(reference_lines.size(), segments.size());
 
-  auto forword_limit =
+  auto forward_limit =
       hdmap::PncMap::LookForwardDistance(vehicle_state.linear_velocity());
 
   for (auto& ref_line : reference_lines) {
     if (!ref_line.Segment(Vec2d(vehicle_state.x(), vehicle_state.y()),
-                          FLAGS_look_backward_distance, forword_limit)) {
+                          FLAGS_look_backward_distance, forward_limit)) {
       std::string msg = "Fail to shrink reference line.";
       return Status(ErrorCode::PLANNING_ERROR, msg);
     }
   }
   for (auto& seg : segments) {
     if (!seg.Shrink(Vec2d(vehicle_state.x(), vehicle_state.y()),
-                    FLAGS_look_backward_distance, forword_limit)) {
+                    FLAGS_look_backward_distance, forward_limit)) {
       std::string msg = "Fail to shrink routing segments.";
       return Status(ErrorCode::PLANNING_ERROR, msg);
     }
@@ -187,6 +188,9 @@ void OnLanePlanning::GenerateStopTrajectory(ADCTrajectory* ptr_trajectory_pb) {
 
 void OnLanePlanning::RunOnce(const LocalView& local_view,
                              ADCTrajectory* const ptr_trajectory_pb) {
+  // when rerouting, reference line might not be updated. In this case, planning
+  // module maintains not-ready until be restarted.
+  static bool failed_to_update_reference_line = false;
   local_view_ = local_view;
   const double start_timestamp = Clock::NowInSeconds();
   const double start_system_timestamp =
@@ -207,7 +211,9 @@ void OnLanePlanning::RunOnce(const LocalView& local_view,
   VehicleState vehicle_state =
       VehicleStateProvider::Instance()->vehicle_state();
   const double vehicle_state_timestamp = vehicle_state.timestamp();
-  DCHECK_GE(start_timestamp, vehicle_state_timestamp);
+  DCHECK_GE(start_timestamp, vehicle_state_timestamp)
+      << "start_timestamp is behind vehicle_state_timestamp by "
+      << start_timestamp - vehicle_state_timestamp << " secs";
 
   if (!status.ok() || !util::IsVehicleStateValid(vehicle_state)) {
     std::string msg(
@@ -233,9 +239,29 @@ void OnLanePlanning::RunOnce(const LocalView& local_view,
 
   if (util::IsDifferentRouting(last_routing_, *local_view_.routing)) {
     last_routing_ = *local_view_.routing;
+    ADEBUG << "last_routing_:" << last_routing_.ShortDebugString();
     History::Instance()->Clear();
     PlanningContext::Instance()->mutable_planning_status()->Clear();
     reference_line_provider_->UpdateRoutingResponse(*local_view_.routing);
+    planner_->Init(config_);
+  }
+
+  failed_to_update_reference_line =
+      (!reference_line_provider_->UpdatedReferenceLine());
+
+  // early return when reference line fails to update after rerouting
+  if (failed_to_update_reference_line) {
+    std::string msg("Failed to updated reference line after rerouting.");
+    AERROR << msg;
+    ptr_trajectory_pb->mutable_decision()
+        ->mutable_main_decision()
+        ->mutable_not_ready()
+        ->set_reason(msg);
+    status.Save(ptr_trajectory_pb->mutable_header()->mutable_status());
+    ptr_trajectory_pb->set_gear(canbus::Chassis::GEAR_DRIVE);
+    FillPlanningPb(start_timestamp, ptr_trajectory_pb);
+    GenerateStopTrajectory(ptr_trajectory_pb);
+    return;
   }
 
   // Update reference line provider and reset pull over if necessary
@@ -267,6 +293,7 @@ void OnLanePlanning::RunOnce(const LocalView& local_view,
   }
   ptr_trajectory_pb->mutable_latency_stats()->set_init_frame_time_ms(
       Clock::NowInSeconds() - start_timestamp);
+
   if (!status.ok()) {
     AERROR << status.ToString();
     if (FLAGS_publish_estop) {
@@ -460,6 +487,7 @@ Status OnLanePlanning::Plan(
       EgoInfo::Instance()->front_clear_distance());
 
   if (frame_->open_space_info().is_on_open_space_trajectory()) {
+    frame_->mutable_open_space_info()->sync_debug_instance();
     const auto& publishable_trajectory =
         frame_->open_space_info().publishable_trajectory_data().first;
     const auto& publishable_trajectory_gear =
@@ -469,9 +497,17 @@ Status OnLanePlanning::Plan(
 
     // TODO(QiL): refine engage advice in open space trajectory optimizer.
     auto* engage_advice = ptr_trajectory_pb->mutable_engage_advice();
-    engage_advice->set_advice(EngageAdvice::KEEP_ENGAGED);
-    engage_advice->set_reason("Keep engage while in parking");
 
+    // enable start auto from open_space planner.
+    if (VehicleStateProvider::Instance()->vehicle_state().driving_mode() !=
+        Chassis::DrivingMode::Chassis_DrivingMode_COMPLETE_AUTO_DRIVE) {
+      engage_advice->set_advice(EngageAdvice::READY_TO_ENGAGE);
+      engage_advice->set_reason(
+          "Ready to engage when staring with OPEN_SPACE_PLANNER");
+    } else {
+      engage_advice->set_advice(EngageAdvice::KEEP_ENGAGED);
+      engage_advice->set_reason("Keep engage while in parking");
+    }
     // TODO(QiL): refine the export decision in open space info
     ptr_trajectory_pb->mutable_decision()
         ->mutable_main_decision()
@@ -489,6 +525,7 @@ Status OnLanePlanning::Plan(
     }
   } else {
     const auto* best_ref_info = frame_->FindDriveReferenceLineInfo();
+    const auto* target_ref_info = frame_->FindTargetReferenceLineInfo();
     if (!best_ref_info) {
       std::string msg("planner failed to make a driving plan");
       AERROR << msg;
@@ -508,10 +545,10 @@ Status OnLanePlanning::Plan(
               std::back_inserter(current_frame_planned_path));
     frame_->set_current_frame_planned_path(current_frame_planned_path);
 
+    ptr_debug->MergeFrom(best_ref_info->debug());
     if (FLAGS_export_chart) {
       ExportOnLaneChart(best_ref_info->debug(), ptr_debug);
     } else {
-      ptr_debug->MergeFrom(best_ref_info->debug());
       ExportReferenceLineDebug(ptr_debug);
       // Export additional ST-chart for failed lane-change speed planning
       const auto* failed_ref_info = frame_->FindFailedReferenceLineInfo();
@@ -524,8 +561,13 @@ Status OnLanePlanning::Plan(
     // set right of way status
     ptr_trajectory_pb->set_right_of_way_status(
         best_ref_info->GetRightOfWayStatus());
+
     for (const auto& id : best_ref_info->TargetLaneId()) {
       ptr_trajectory_pb->add_lane_id()->CopyFrom(id);
+    }
+
+    for (const auto& id : target_ref_info->TargetLaneId()) {
+      ptr_trajectory_pb->add_target_lane_id()->CopyFrom(id);
     }
 
     ptr_trajectory_pb->set_trajectory_type(best_ref_info->trajectory_type());
@@ -570,7 +612,7 @@ Status OnLanePlanning::Plan(
     last_publishable_trajectory_.reset(new PublishableTrajectory(
         current_time_stamp, best_ref_info->trajectory()));
 
-    ADEBUG << "current_time_stamp: " << std::to_string(current_time_stamp);
+    ADEBUG << "current_time_stamp: " << current_time_stamp;
 
     last_publishable_trajectory_->PrependTrajectoryPoints(
         std::vector<TrajectoryPoint>(stitching_trajectory.begin(),
@@ -619,11 +661,26 @@ void AddSTGraph(const STGraphDebug& st_graph, Chart* chart) {
                        false, chart);
 
   for (const auto& boundary : st_graph.boundary()) {
-    auto* boundary_chart = chart->add_polygon();
-
     // from 'ST_BOUNDARY_TYPE_' to the end
     std::string type =
         StGraphBoundaryDebug_StBoundaryType_Name(boundary.type()).substr(17);
+
+    auto* boundary_chart = chart->add_polygon();
+    auto* properties = boundary_chart->mutable_properties();
+    (*properties)["borderWidth"] = "2";
+    (*properties)["pointRadius"] = "0";
+    (*properties)["lineTension"] = "0";
+    (*properties)["cubicInterpolationMode"] = "monotone";
+    (*properties)["showLine"] = "true";
+    (*properties)["showText"] = "true";
+    (*properties)["fill"] = "false";
+
+    if (type == "DRIVABLE_REGION") {
+      (*properties)["color"] = "\"rgba(0, 255, 0, 0.5)\"";
+    } else {
+      (*properties)["color"] = "\"rgba(255, 0, 0, 0.8)\"";
+    }
+
     boundary_chart->set_label(boundary.name() + "_" + type);
     for (const auto& point : boundary.point()) {
       auto* point_debug = boundary_chart->add_point();
@@ -744,7 +801,7 @@ void OnLanePlanning::AddOpenSpaceOptimizerResult(
   int obstacle_index = 1;
   for (const auto& obstacle : open_space_debug.obstacles()) {
     auto* obstacle_outline = chart->add_line();
-    obstacle_outline->set_label("Bdr" + std::to_string(obstacle_index));
+    obstacle_outline->set_label(absl::StrCat("Bdr", obstacle_index));
     obstacle_index += 1;
     for (int vertice_index = 0;
          vertice_index < obstacle.vertices_x_coords_size(); vertice_index++) {
@@ -865,8 +922,8 @@ void OnLanePlanning::AddPartitionedTrajectory(
   for (const auto& partitioned_trajectory :
        open_space_debug.partitioned_trajectories().trajectory()) {
     auto* partition_line = chart->add_line();
-    partition_line->set_label("Patitioned " +
-                              std::to_string(partitioned_trajectory_label));
+    partition_line->set_label(
+        absl::StrCat("Partitioned ", partitioned_trajectory_label));
     ++partitioned_trajectory_label;
     for (const auto& point : partitioned_trajectory.trajectory_point()) {
       auto* point_debug = partition_line->add_point();

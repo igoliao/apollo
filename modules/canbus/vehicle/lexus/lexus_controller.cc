@@ -479,7 +479,7 @@ void LexusController::Acceleration(double acc) {
 }
 
 // TODO(Yu/QiL): double check the physical range, unit and direction for Lexus
-// lexus default -32.768 ~ 32.767, unit: rad, left:-, right:+ in canbus protocal
+// lexus default -32.768 ~ 32.767, unit: rad, left:-, right:+ in canbus protocol
 // need to be compatible with control module, so reverse steering
 // angle:-99.99~0.00~99.99, unit: %, left:+, right:- in control module
 void LexusController::Steer(double angle) {
@@ -496,8 +496,8 @@ void LexusController::Steer(double angle) {
 }
 
 // TODO(Yu/QiL): double check the physical range, unit and direction for Lexus
-// lexus default -32.768 ~ 32.767, unit: rad, left:-, right:+ in canbus protocal
-// lexus default 0 ~ 65.535, unit: rad/sec, in canbus protocal
+// lexus default -32.768 ~ 32.767, unit: rad, left:-, right:+ in canbus protocol
+// lexus default 0 ~ 65.535, unit: rad/sec, in canbus protocol
 // steering with new angle speed
 // angle:-99.99~0.00~99.99, unit:%, left:+, right:- in control module
 // angle_spd:0.00~99.99, unit:%
@@ -581,8 +581,7 @@ void LexusController::SecurityDogThreadFunc() {
   int64_t start = 0;
   int64_t end = 0;
   while (can_sender_->IsRunning()) {
-    start = ::apollo::common::time::AsInt64<::apollo::common::time::micros>(
-        ::apollo::common::time::Clock::Now());
+    start = absl::ToUnixMicros(::apollo::common::time::Clock::Now());
     const Chassis::DrivingMode mode = driving_mode();
     bool emergency_mode = false;
 
@@ -620,8 +619,7 @@ void LexusController::SecurityDogThreadFunc() {
       set_driving_mode(Chassis::EMERGENCY_MODE);
       message_manager_->ResetSendMessages();
     }
-    end = ::apollo::common::time::AsInt64<::apollo::common::time::micros>(
-        ::apollo::common::time::Clock::Now());
+    end = absl::ToUnixMicros(::apollo::common::time::Clock::Now());
     std::chrono::duration<double, std::micro> elapsed{end - start};
     if (elapsed < default_period) {
       std::this_thread::sleep_for(default_period - elapsed);

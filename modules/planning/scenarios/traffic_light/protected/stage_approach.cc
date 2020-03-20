@@ -18,8 +18,6 @@
  * @file
  **/
 
-#include <vector>
-
 #include "modules/planning/scenarios/traffic_light/protected/stage_approach.h"
 
 #include "cyber/common/log.h"
@@ -50,7 +48,7 @@ Stage::StageStatus TrafficLightProtectedStageApproach::Process(
     AERROR << "TrafficLightProtectedStageApproach planning error";
   }
 
-  if (GetContext()->current_traffic_light_overlap_ids.size() == 0) {
+  if (GetContext()->current_traffic_light_overlap_ids.empty()) {
     return FinishScenario();
   }
 
@@ -100,13 +98,6 @@ Stage::StageStatus TrafficLightProtectedStageApproach::Process(
   }
 
   return Stage::RUNNING;
-}
-
-Stage::StageStatus TrafficLightProtectedStageApproach::FinishScenario() {
-  PlanningContext::Instance()->mutable_planning_status()->clear_traffic_light();
-
-  next_stage_ = ScenarioConfig::NO_STAGE;
-  return Stage::FINISHED;
 }
 
 Stage::StageStatus TrafficLightProtectedStageApproach::FinishStage() {

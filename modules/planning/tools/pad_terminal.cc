@@ -29,7 +29,6 @@ namespace {
 
 using apollo::cyber::CreateNode;
 using apollo::cyber::Node;
-using apollo::cyber::Reader;
 using apollo::cyber::Writer;
 using apollo::planning::DrivingAction;
 using apollo::planning::PadMessage;
@@ -48,6 +47,7 @@ class PadTerminal {
     AINFO << "\t2: change right";
     AINFO << "\t3: pull over";
     AINFO << "\t4: stop";
+    AINFO << "\t5: resume cruise";
     AINFO << "\t10: exit";
     AINFO << "\tother number: print help";
   }
@@ -56,18 +56,20 @@ class PadTerminal {
     PadMessage pad;
     pad.set_action(DrivingAction(action));
     if (action == DrivingAction::FOLLOW) {
-      AINFO << "sending follow action command.";
+      AINFO << "sending FOLLOW action command.";
     } else if (action == DrivingAction::CHANGE_LEFT) {
-      AINFO << "sending change left action command.";
+      AINFO << "sending CHANGE LEFT action command.";
     } else if (action == DrivingAction::CHANGE_RIGHT) {
-      AINFO << "sending change right action command.";
+      AINFO << "sending CHANGE RIGHT action command.";
     } else if (action == DrivingAction::PULL_OVER) {
-      AINFO << "sending pull over action command.";
+      AINFO << "sending PULL OVER action command.";
     } else if (action == DrivingAction::STOP) {
-      AINFO << "sending stop action command.";
+      AINFO << "sending STOP action command.";
+    } else if (action == DrivingAction::RESUME_CRUISE) {
+      AINFO << "sending RESUME CRUISE action command.";
     }
     apollo::common::util::FillHeader("terminal", &pad);
-    pad_writer_->Write(std::make_shared<PadMessage>(pad));
+    pad_writer_->Write(pad);
     AINFO << "send pad_message OK";
   }
 
@@ -90,6 +92,9 @@ class PadTerminal {
           break;
         case 4:
           send(DrivingAction::STOP);
+          break;
+        case 5:
+          send(DrivingAction::RESUME_CRUISE);
           break;
         case 10:
           should_exit = true;

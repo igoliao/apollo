@@ -1,9 +1,12 @@
 import * as THREE from "three";
-import OrbitControls from "three/examples/js/controls/OrbitControls.js";
 import Stats from "stats.js";
+
+import Styles from "styles/main.scss";
+const _ = require('lodash');
 
 import Coordinates from "renderer/coordinates";
 import AutoDrivingCar from "renderer/adc";
+import CheckPoints from "renderer/check_points.js";
 import Ground from "renderer/ground";
 import TileGround from "renderer/tileground";
 import Map from "renderer/map";
@@ -16,8 +19,6 @@ import Routing from "renderer/routing.js";
 import RoutingEditor from "renderer/routing_editor.js";
 import Gnss from "renderer/gnss.js";
 import PointCloud from "renderer/point_cloud.js";
-import Styles from "styles/main.scss";
-const _ = require('lodash');
 
 
 class Renderer {
@@ -32,6 +33,9 @@ class Renderer {
             alpha: true,
         });
         this.scene = new THREE.Scene();
+        if (OFFLINE_PLAYBACK) {
+            this.scene.background = new THREE.Color(0x000C17);
+        }
 
         // The dimension of the scene
         this.dimension = {
@@ -80,6 +84,8 @@ class Renderer {
         this.gnss = new Gnss();
 
         this.pointCloud = new PointCloud();
+
+        this.checkPoints = OFFLINE_PLAYBACK && new CheckPoints(this.coordinates, this.scene);
 
         // The Performance Monitor
         this.stats = null;
@@ -155,11 +161,11 @@ class Renderer {
     }
 
     updateDimension(width, height) {
-        if (width < Styles.MIN_SCENE_WIDTH) {
-            // Min width of main view is 600, so we need not update
-            // camera/renderer dimension anymore
+        if (width < Styles.MIN_MAIN_VIEW_WIDTH / 2 && this.dimension.width >= width) {
+            // Reach minimum, do not update camera/renderer dimension anymore.
             return;
         }
+
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(width, height);
@@ -327,8 +333,8 @@ class Renderer {
         this.routingEditor.removeInvalidRoutingPoint(pointId, error, this.scene);
     }
 
-    setParkingSpaceId(id) {
-        this.routingEditor.setParkingSpaceId(id);
+    setParkingInfo(info) {
+        this.routingEditor.setParkingInfo(info);
     }
 
     removeAllRoutingPoints() {

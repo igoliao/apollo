@@ -22,13 +22,6 @@
 
 DISABLED_CYBER_MODULES="except //cyber/record:record_file_integration_test"
 
-function source_apollo_base() {
-  DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-  cd "${DIR}"
-
-  source ${DIR}/scripts/apollo_base.sh $1
-}
-
 function apollo_check_system_config() {
   # check docker environment
   if [ ${MACHINE_ARCH} == "x86_64" ] && [ ${APOLLO_IN_DOCKER} != "true" ]; then
@@ -63,20 +56,14 @@ function apollo_check_system_config() {
 function check_machine_arch() {
   # the machine type, currently support x86_64, aarch64
   MACHINE_ARCH=$(uname -m)
-
-  # Generate WORKSPACE file based on marchine architecture
-  if [ "$MACHINE_ARCH" == 'x86_64' ]; then
-    sed "s/MACHINE_ARCH/x86_64/g" WORKSPACE.in > WORKSPACE
-  elif [ "$MACHINE_ARCH" == 'aarch64' ]; then
-    sed "s/MACHINE_ARCH/aarch64/g" WORKSPACE.in > WORKSPACE
-  else
+  if [ "${MACHINE_ARCH}" != "x86_64" ] && [ "${MACHINE_ARCH}" != "aarch64" ]; then
     fail "Unknown machine architecture $MACHINE_ARCH"
     exit 1
   fi
 
   #setup vtk folder name for different systems.
   VTK_VERSION=$(find /usr/include/ -type d  -name "vtk-*" | tail -n1 | cut -d '-' -f 2)
-  sed -i "s/VTK_VERSION/${VTK_VERSION}/g" WORKSPACE
+  sed "s/VTK_VERSION/${VTK_VERSION}/g" WORKSPACE.in > WORKSPACE
 }
 
 function check_esd_files() {
@@ -97,10 +84,10 @@ function generate_build_targets() {
   COMMON_TARGETS="//cyber/... union //modules/common/kv_db/... union //modules/dreamview/... $DISABLED_CYBER_MODULES"
   case $BUILD_FILTER in
   cyber)
-    BUILD_TARGETS=`bazel query //cyber/...`
+    BUILD_TARGETS=`bazel query //cyber/... union //modules/tools/visualizer/...`
     ;;
   drivers)
-    BUILD_TARGETS=`bazel query //cyber/... union //modules/drivers/... except //modules/drivers/tools/... except //modules/drivers/canbus/... except //modules/drivers/video/...`
+    BUILD_TARGETS=`bazel query //cyber/... union //modules/tools/visualizer/... union //modules/drivers/... except //modules/drivers/tools/... except //modules/drivers/canbus/... except //modules/drivers/video/...`
     ;;
   control)
     BUILD_TARGETS=`bazel query $COMMON_TARGETS union //modules/control/... `
@@ -120,7 +107,7 @@ function generate_build_targets() {
   *)
 #    BUILD_TARGETS=`bazel query //modules/... union //cyber/...`
     # FIXME(all): temporarily disable modules doesn't compile in 18.04
-    BUILD_TARGETS=`bazel query //modules/... union //cyber/... except //modules/tools/visualizer/... except //modules/data/tools/rosbag_to_record/...  except //modules/v2x/... except //modules/map/tools/map_datachecker/... $DISABLE_CYBER_MODULES`
+    BUILD_TARGETS=`bazel query //modules/... union //cyber/... except //modules/tools/visualizer/... except //modules/v2x/... except //modules/map/tools/map_datachecker/... $DISABLE_CYBER_MODULES`
   esac
 
   if [ $? -ne 0 ]; then
@@ -275,14 +262,17 @@ function apollo_build_opt() {
 }
 
 function build_py_proto() {
+  # TODO(xiaoxq): Retire this as we are using bazel to compile protos into bazel-genfiles.
   if [ -d "./py_proto" ];then
     rm -rf py_proto
   fi
   mkdir py_proto
-  PROTOC='./bazel-out/host/bin/external/com_google_protobuf/protoc'
   find modules/ cyber/ -name "*.proto" \
       | grep -v node_modules \
-      | xargs ${PROTOC} --python_out=py_proto
+      | xargs protoc --python_out=py_proto
+  find modules/ cyber/ -name "*_service.proto" \
+      | grep -v node_modules \
+      | xargs python -m grpc_tools.protoc --proto_path=. --python_out=py_proto --grpc_python_out=py_proto
   find py_proto/* -type d -exec touch "{}/__init__.py" \;
 }
 
@@ -344,7 +334,7 @@ function release() {
   cd -
 
   # setup cyber binaries and convert from //path:target to path/target
-  CYBERBIN=$(bazel query "kind(cc_binary, //...)" | sed 's/^\/\///' | sed 's/:/\//' | sed '/.*.so$/d')
+  CYBERBIN=$(bazel query "kind(cc_binary, //cyber/... //modules/tools/visualizer/...)" | sed 's/^\/\///' | sed 's/:/\//' | sed '/.*.so$/d')
   for BIN in ${CYBERBIN}; do
     cp -P --parent "bazel-bin/${BIN}" ${APOLLO_RELEASE_DIR}
   done
@@ -503,7 +493,7 @@ function citest_basic() {
 #   BUILD_TARGETS="
 #    `bazel query //modules/... union //cyber/...`
 #  "
-  BUILD_TARGETS=`bazel query //modules/... union //cyber/... except //modules/tools/visualizer/... except //modules/data/tools/rosbag_to_record/...  except //modules/v2x/... except //modules/drivers/video/tools/decode_video/... except //modules/map/tools/map_datachecker/... `
+  BUILD_TARGETS=`bazel query //modules/... union //cyber/... except //modules/tools/visualizer/... except //modules/v2x/... except //modules/drivers/video/tools/decode_video/... except //modules/map/tools/map_datachecker/... `
 
   JOB_ARG="--jobs=12 --ram_utilization_factor 80"
 
@@ -587,7 +577,8 @@ function run_bash_lint() {
 
 function run_lint() {
   # Add cpplint rule to BUILD files that do not contain it.
-  for file in $(find cyber modules -name BUILD |  grep -v gnss/third_party | \
+  for file in $(find cyber modules -name BUILD | \
+    grep -v gnss/third_party | grep -v modules/teleop/encoder/nvenc_sdk6 | \
     xargs grep -l -E 'cc_library|cc_test|cc_binary' | xargs grep -L 'cpplint()')
   do
     sed -i '1i\load("//tools:cpplint.bzl", "cpplint")\n' $file
@@ -707,7 +698,7 @@ function print_usage() {
   ${BLUE}build_control${NONE}: compile control and its dependencies.
   ${BLUE}build_prediction${NONE}: compile prediction and its dependencies.
   ${BLUE}build_pnc${NONE}: compile pnc and its dependencies.
-  ${BLUE}build_no_perception [dbg|opt]${NONE}: run build, skip building perception module, useful when some perception dependencies are not satisified, e.g., CUDA, CUDNN, LIDAR, etc.
+  ${BLUE}build_no_perception [dbg|opt]${NONE}: run build, skip building perception module, useful when some perception dependencies are not satisfied, e.g., CUDA, CUDNN, LIDAR, etc.
   ${BLUE}build_prof${NONE}: build for gprof support.
   ${BLUE}buildify${NONE}: fix style of BUILD files
   ${BLUE}check${NONE}: run build/lint/test, please make sure it passes before checking in new code
@@ -724,7 +715,8 @@ function print_usage() {
 }
 
 function main() {
-  source_apollo_base
+  cd "$( dirname "${BASH_SOURCE[0]}" )"
+  source scripts/apollo_base.sh
 
   check_machine_arch
   apollo_check_system_config
@@ -831,6 +823,11 @@ function main() {
     build_opt_gpu)
       set_use_gpu
       DEFINES="${DEFINES} --copt=-fpic"
+      apollo_build_opt $@
+      ;;
+    build_teleop)
+      set_use_gpu
+      DEFINES="${DEFINES} --copt=-fpic --define WITH_TELEOP=1 --cxxopt=-DTELEOP"
       apollo_build_opt $@
       ;;
     build_fe)

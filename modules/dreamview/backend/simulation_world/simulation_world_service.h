@@ -20,6 +20,9 @@
 
 #pragma once
 
+#include <boost/thread/locks.hpp>
+#include <boost/thread/shared_mutex.hpp>
+
 #include <algorithm>
 #include <list>
 #include <memory>
@@ -28,28 +31,23 @@
 #include <utility>
 #include <vector>
 
-#include "boost/thread/locks.hpp"
-#include "boost/thread/shared_mutex.hpp"
-
 #include "cyber/common/log.h"
-
 #include "gtest/gtest_prod.h"
-
 #include "third_party/json/json.hpp"
-
-#include "modules/dreamview/backend/map/map_service.h"
-#include "modules/dreamview/proto/simulation_world.pb.h"
 
 #include "modules/common/monitor_log/monitor_log_buffer.h"
 #include "modules/common/proto/drive_event.pb.h"
 #include "modules/common/proto/pnc_point.pb.h"
 #include "modules/control/proto/control_cmd.pb.h"
+#include "modules/dreamview/backend/map/map_service.h"
+#include "modules/dreamview/proto/simulation_world.pb.h"
 #include "modules/localization/proto/gps.pb.h"
 #include "modules/localization/proto/localization.pb.h"
 #include "modules/perception/proto/traffic_light_detection.pb.h"
 #include "modules/planning/proto/planning.pb.h"
 #include "modules/planning/proto/planning_internal.pb.h"
 #include "modules/prediction/proto/prediction_obstacle.pb.h"
+#include "modules/storytelling/proto/story.pb.h"
 
 /**
  * @namespace apollo::dreamview
@@ -292,7 +290,7 @@ class SimulationWorldService {
   void DownsampleSpeedPointsByInterval(const Points &points,
                                        size_t downsampleInterval,
                                        Points *downsampled_points) {
-    if (points.size() == 0) {
+    if (points.empty()) {
       return;
     }
 
@@ -371,6 +369,8 @@ class SimulationWorldService {
       routing_request_reader_;
   std::shared_ptr<cyber::Reader<apollo::routing::RoutingResponse>>
       routing_response_reader_;
+  std::shared_ptr<cyber::Reader<apollo::storytelling::Stories>>
+      storytelling_reader_;
 
   // Writers.
   std::shared_ptr<cyber::Writer<apollo::relative_map::NavigationInfo>>

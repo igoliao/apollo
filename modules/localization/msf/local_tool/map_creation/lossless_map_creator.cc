@@ -14,10 +14,9 @@
  * limitations under the License.
  *****************************************************************************/
 
+#include <boost/filesystem.hpp>
+#include <boost/program_options.hpp>
 #include <vector>
-
-#include "boost/filesystem.hpp"
-#include "boost/program_options.hpp"
 
 #include "cyber/common/file.h"
 #include "modules/localization/msf/common/io/velodyne_utility.h"
@@ -322,6 +321,7 @@ int main(int argc, char** argv) {
               dynamic_cast<PyramidMapMatrix&>(map_node->GetMapCellMatrix());
           map_matrix.SetIntensitySafe(intensity, row, col);
           map_matrix.SetGroundAltitudeSafe(ground_altitude, row, col);
+          map_node->SetIsChanged(true);
         }
       }
     }

@@ -19,7 +19,6 @@
  **/
 
 #include <string>
-#include <vector>
 
 #include "modules/planning/scenarios/traffic_light/unprotected_right_turn/stage_creep.h"
 
@@ -45,7 +44,6 @@ namespace traffic_light {
 using apollo::common::TrajectoryPoint;
 using apollo::common::time::Clock;
 using apollo::hdmap::PathOverlap;
-using apollo::perception::TrafficLight;
 
 Stage::StageStatus TrafficLightUnprotectedRightTurnStageCreep::Process(
     const TrajectoryPoint& planning_init_point, Frame* frame) {
@@ -63,7 +61,7 @@ Stage::StageStatus TrafficLightUnprotectedRightTurnStageCreep::Process(
     AERROR << "TrafficLightUnprotectedRightTurnStageCreep planning error";
   }
 
-  if (GetContext()->current_traffic_light_overlap_ids.size() == 0) {
+  if (GetContext()->current_traffic_light_overlap_ids.empty()) {
     return FinishScenario();
   }
 
@@ -110,14 +108,6 @@ Stage::StageStatus TrafficLightUnprotectedRightTurnStageCreep::Process(
   }
 
   return Stage::RUNNING;
-}
-
-Stage::StageStatus
-TrafficLightUnprotectedRightTurnStageCreep::FinishScenario() {
-  PlanningContext::Instance()->mutable_planning_status()->clear_traffic_light();
-
-  next_stage_ = ScenarioConfig::NO_STAGE;
-  return Stage::FINISHED;
 }
 
 Stage::StageStatus TrafficLightUnprotectedRightTurnStageCreep::FinishStage() {

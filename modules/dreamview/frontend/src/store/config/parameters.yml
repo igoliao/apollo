@@ -95,8 +95,6 @@ options:
     default: false
   showPOI:
     default: false
-  enableAudioCapture:
-    default: false
   showDataRecorder:
     default: false
 
@@ -111,6 +109,12 @@ options:
     default: false
   showVideo:
     default: false
+
+  # teleop
+  showConsoleTeleopMonitor:
+      default: false
+  showCarTeleopMonitor:
+      default: false
 
   # layer Menu options
   cameraAngle:
@@ -140,6 +144,9 @@ options:
   showPredictionMinor:
     default: true
     menuId: predictionMinor
+  showGaussianInfo:
+    default: false
+    menuId: predictionGaussianInfo
   showPredictionPriority:
     default: true
     menuId: predictionPriority

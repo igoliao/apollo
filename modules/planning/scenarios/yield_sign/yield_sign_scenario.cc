@@ -37,8 +37,6 @@ namespace scenario {
 namespace yield_sign {
 
 using apollo::hdmap::HDMapUtil;
-using apollo::hdmap::YieldSignInfo;
-using apollo::hdmap::YieldSignInfoConstPtr;
 
 using StopSignLaneVehicles =
     std::unordered_map<std::string, std::vector<std::string>>;
@@ -63,7 +61,7 @@ void YieldSignScenario::Init() {
   const auto& yield_sign_status =
       PlanningContext::Instance()->planning_status().yield_sign();
 
-  if (yield_sign_status.current_yield_sign_overlap_id_size() == 0) {
+  if (yield_sign_status.current_yield_sign_overlap_id().empty()) {
     AERROR << "Could not find yield-sign(s)";
     return;
   }

@@ -16,6 +16,7 @@
 
 #include "modules/transform/buffer.h"
 
+#include "absl/strings/str_cat.h"
 #include "cyber/cyber.h"
 #include "modules/common/adapters/adapter_gflags.h"
 
@@ -27,8 +28,8 @@ static constexpr float kSecondToNanoFactor = 1e9f;
 Buffer::Buffer() : BufferCore() { Init(); }
 
 int Buffer::Init() {
-  std::string node_name =
-      "transform_listener_" + std::to_string(cyber::Time::Now().ToNanosecond());
+  const std::string node_name =
+      absl::StrCat("transform_listener_", cyber::Time::Now().ToNanosecond());
   node_ = cyber::CreateNode(node_name);
   apollo::cyber::proto::RoleAttributes attr;
   attr.set_channel_name("/tf");
@@ -193,7 +194,7 @@ bool Buffer::canTransform(const std::string& target_frame,
       cyber::Time::Now().ToNanosecond() < start_time + timeout_ns &&
       !canTransform(target_frame, source_frame, time.ToNanosecond(), errstr) &&
       !cyber::IsShutdown()) {
-    usleep(3000);
+    std::this_thread::sleep_for(std::chrono::milliseconds(3));
   }
   bool retval =
       canTransform(target_frame, source_frame, time.ToNanosecond(), errstr);
@@ -217,7 +218,7 @@ bool Buffer::canTransform(const std::string& target_frame,
                        source_time.ToNanosecond(),
                        fixed_frame) &&
          !cyber::IsShutdown()) {  // Make sure we haven't been stopped
-    usleep(3000);
+    std::this_thread::sleep_for(std::chrono::milliseconds(3));
   }
   bool retval =
       canTransform(target_frame, target_time.ToNanosecond(), source_frame,

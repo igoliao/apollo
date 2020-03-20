@@ -20,8 +20,8 @@ limitations under the License.
 #include <set>
 #include <unordered_set>
 
+#include "absl/strings/match.h"
 #include "cyber/common/file.h"
-#include "modules/common/util/string_util.h"
 #include "modules/map/hdmap/adapter/opendrive_adapter.h"
 
 namespace apollo {
@@ -49,7 +49,7 @@ int HDMapImpl::LoadMapFromFile(const std::string& map_filename) {
   Clear();
   // TODO(All) seems map_ can be changed to a local variable of this
   // function, but test will fail if I do so. if so.
-  if (apollo::common::util::EndWith(map_filename, ".xml")) {
+  if (absl::EndsWith(map_filename, ".xml")) {
     if (!adapter::OpendriveAdapter::LoadData(map_filename, &map_)) {
       return -1;
     }
@@ -503,7 +503,7 @@ int HDMapImpl::GetNearestLane(const Vec2d& point,
   }
   const Id& lane_id = segment_object->object()->id();
   *nearest_lane = GetLaneById(lane_id);
-  CHECK(*nearest_lane);
+  ACHECK(*nearest_lane);
   const int id = segment_object->id();
   const auto& segment = (*nearest_lane)->segments()[id];
   Vec2d nearest_pt;
@@ -584,7 +584,7 @@ int HDMapImpl::GetLanesWithHeading(const Vec2d& point, const double distance,
   CHECK_NOTNULL(lanes);
   std::vector<LaneInfoConstPtr> all_lanes;
   const int status = GetLanes(point, distance, &all_lanes);
-  if (status < 0 || all_lanes.size() <= 0) {
+  if (status < 0 || all_lanes.empty()) {
     return -1;
   }
 
@@ -618,7 +618,7 @@ int HDMapImpl::GetRoadBoundaries(
   junctions->clear();
 
   std::vector<LaneInfoConstPtr> lanes;
-  if (GetLanes(point, radius, &lanes) != 0 || lanes.size() <= 0) {
+  if (GetLanes(point, radius, &lanes) != 0 || lanes.empty()) {
     return -1;
   }
 

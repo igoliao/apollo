@@ -24,13 +24,13 @@
 
 #include "Eigen/LU"
 
+#include "absl/strings/str_cat.h"
 #include "cyber/common/log.h"
 #include "modules/common/configs/vehicle_config_helper.h"
 #include "modules/common/math/math_utils.h"
 #include "modules/common/math/mpc_osqp.h"
 #include "modules/common/math/mpc_solver.h"
 #include "modules/common/time/time.h"
-#include "modules/common/util/string_util.h"
 #include "modules/control/common/control_gflags.h"
 
 namespace apollo {
@@ -94,7 +94,7 @@ bool MPCController::LoadControlConf(const ControlConf *control_conf) {
 
   // TODO(Shu, Qi, Yu): add sanity check for conf values
   // steering ratio should be positive
-  constexpr double kEpsilon = 1e-6;
+  static constexpr double kEpsilon = 1e-6;
   if (std::isnan(steer_ratio_) || steer_ratio_ < kEpsilon) {
     AERROR << "[MPCController] steer_ratio = 0";
     return false;
@@ -220,10 +220,10 @@ Status MPCController::Init(const ControlConf *control_conf) {
 
   int q_param_size = control_conf->mpc_controller_conf().matrix_q_size();
   if (basic_state_size_ != q_param_size) {
-    const auto error_msg = common::util::StrCat(
-        "MPC controller error: matrix_q size: ", q_param_size,
-        " in parameter file not equal to basic_state_size_: ",
-        basic_state_size_);
+    const auto error_msg =
+        absl::StrCat("MPC controller error: matrix_q size: ", q_param_size,
+                     " in parameter file not equal to basic_state_size_: ",
+                     basic_state_size_);
     AERROR << error_msg;
     return Status(ErrorCode::CONTROL_COMPUTE_ERROR, error_msg);
   }
@@ -282,19 +282,19 @@ void MPCController::LoadMPCGainScheduler(
   }
 
   lat_err_interpolation_.reset(new Interpolation1D);
-  CHECK(lat_err_interpolation_->Init(xy1))
+  ACHECK(lat_err_interpolation_->Init(xy1))
       << "Fail to load lateral error gain scheduler for MPC controller";
 
   heading_err_interpolation_.reset(new Interpolation1D);
-  CHECK(heading_err_interpolation_->Init(xy2))
+  ACHECK(heading_err_interpolation_->Init(xy2))
       << "Fail to load heading error gain scheduler for MPC controller";
 
   feedforwardterm_interpolation_.reset(new Interpolation1D);
-  CHECK(feedforwardterm_interpolation_->Init(xy2))
+  ACHECK(feedforwardterm_interpolation_->Init(xy2))
       << "Fail to load feed forward term gain scheduler for MPC controller";
 
   steer_weight_interpolation_.reset(new Interpolation1D);
-  CHECK(steer_weight_interpolation_->Init(xy2))
+  ACHECK(steer_weight_interpolation_->Init(xy2))
       << "Fail to load steer weight gain scheduler for MPC controller";
 }
 
@@ -559,7 +559,7 @@ void MPCController::LoadControlCalibrationTable(
                                   calibration.command()));
   }
   control_interpolation_.reset(new Interpolation2D);
-  CHECK(control_interpolation_->Init(xyz))
+  ACHECK(control_interpolation_->Init(xyz))
       << "Fail to load control calibration table";
 }
 

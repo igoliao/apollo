@@ -16,9 +16,10 @@
 
 #include "cyber/parameter/parameter_client.h"
 
-#include <gtest/gtest.h>
 #include <memory>
+#include <thread>
 #include <vector>
+#include "gtest/gtest.h"
 
 #include "cyber/cyber.h"
 #include "cyber/init.h"
@@ -56,7 +57,7 @@ class ParameterClientTest : public ::testing::Test {
 
 TEST_F(ParameterClientTest, set_parameter) {
   EXPECT_TRUE(pc_->SetParameter(Parameter("int", 1)));
-  usleep(100000);
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   ps_.reset();
   EXPECT_FALSE(pc_->SetParameter(Parameter("int", 1)));

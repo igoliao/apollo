@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "absl/strings/str_cat.h"
 #include "cyber/common/log.h"
 #include "modules/perception/inference/tensorrt/plugins/argmax_plugin.h"
 #include "modules/perception/inference/tensorrt/plugins/leakyReLU_plugin.h"
@@ -67,7 +68,7 @@ void RTNet::addConvLayer(const LayerParameter &layer_param,
                          TensorModifyMap *tensor_modify_map) {
   ConvolutionParameter conv = layer_param.convolution_param();
   ConvParam param;
-  CHECK(ParserConvParam(conv, &param));
+  ACHECK(ParserConvParam(conv, &param));
   nvinfer1::IConvolutionLayer *convLayer = nullptr;
   int size = conv.num_output() * param.kernel_w * param.kernel_h *
              inputs[0]->getDimensions().d[0];
@@ -101,12 +102,12 @@ void RTNet::addConvLayer(const LayerParameter &layer_param,
   auto tmp_out_dims = convLayer->getOutput(0)->getDimensions();
   std::string dim_string = "input: ";
   for (int i = 0; i < 3; i++) {
-    dim_string +=
-        " " + std::to_string(convLayer->getInput(0)->getDimensions().d[i]);
+    absl::StrAppend(&dim_string, " ",
+                    convLayer->getInput(0)->getDimensions().d[i]);
   }
-  dim_string += " | output: ";
+  absl::StrAppend(&dim_string, " | output: ");
   for (int i = 0; i < 3; i++) {
-    dim_string += " " + std::to_string(tmp_out_dims.d[i]);
+    absl::StrAppend(&dim_string, " ", tmp_out_dims.d[i]);
   }
   AINFO << layer_param.name() << dim_string;
 #endif
@@ -144,9 +145,9 @@ void RTNet::addDeconvLayer(const LayerParameter &layer_param,
 #if LOAD_DEBUG
   std::string dim_string = "input: ";
   for (int i = 0; i < 3; i++) {
-    dim_string += " " + std::to_string(inputs[0]->getDimensions().d[i]);
+    absl::StrAppend(&dim_string, " ", inputs[0]->getDimensions().d[i]);
   }
-  dim_string += " | output: ";
+  absl::StrAppend(&dim_string, " | output: ");
   AINFO << layer_param.name() << dim_string;
 #endif
 }
@@ -195,7 +196,7 @@ void RTNet::addConcatLayer(const LayerParameter &layer_param,
   for (int i = 0; i < nbInputs; i++) {
     auto dim_tmp = inputs[i]->getDimensions();
     for (int i = 0; i < 3; i++) {
-      dim_string += " " + std::to_string(dim_tmp.d[i]);
+      absl::StrAppend(&dim_string, " ", dim_tmp.d[i]);
     }
     AINFO << layer_param.name() << ": " << layer_param.bottom(i) << " "
           << (*tensor_modify_map)[layer_param.bottom(i)] << " " << dim_string;
@@ -214,7 +215,7 @@ void RTNet::addPoolingLayer(const LayerParameter &layer_param,
       (pool.pool() == PoolingParameter_PoolMethod_MAX)
           ? nvinfer1::PoolingType::kMAX
           : nvinfer1::PoolingType::kAVERAGE;
-  CHECK(modify_pool_param(&pool));
+  ACHECK(modify_pool_param(&pool));
   nvinfer1::IPoolingLayer *poolLayer = net->addPooling(
       *inputs[0], pool_type,
       {static_cast<int>(pool.kernel_h()), static_cast<int>(pool.kernel_w())});
@@ -276,7 +277,7 @@ void RTNet::addScaleLayer(const LayerParameter &layer_param,
     lw[1] = loadLayerWeights(power_param.shift(), size);
     lw[2] = loadLayerWeights(power_param.power(), size);
   } else {
-    CHECK(weight_map->find(layer_param.name().c_str()) != weight_map->end());
+    ACHECK(weight_map->find(layer_param.name().c_str()) != weight_map->end());
     for (size_t i = 0; i < (*weight_map)[layer_param.name().c_str()].size();
          i++) {
       lw[i] = (*weight_map)[layer_param.name().c_str()][i];
@@ -457,8 +458,6 @@ void RTNet::addLayer(const LayerParameter &layer_param,
   } else if (layer_param.type() == "ArgMax") {
     addArgmaxLayer(layer_param, inputs, nbInputs, net, tensor_map,
                    tensor_modify_map);
-  } else if (layer_param.type() == "Padding") {
-    addPaddingLayer(layer_param, inputs, net, tensor_map, tensor_modify_map);
   } else if (layer_param.type() == "Dropout") {
     AINFO << "skip dropout";
   } else if (layer_param.type() == "Power") {
@@ -610,7 +609,7 @@ void RTNet::init_blob(std::vector<std::string> *names) {
     int count = dims.c() * dims.h() * dims.w() * max_batch_size_;
     cudaMalloc(&buffers_[bindingIndex], count * sizeof(float));
     std::vector<int> shape;
-    CHECK(this->shape(name, &shape));
+    ACHECK(this->shape(name, &shape));
     std::shared_ptr<apollo::perception::base::Blob<float>> blob;
     blob.reset(new apollo::perception::base::Blob<float>(shape));
     blob->set_gpu_data(reinterpret_cast<float *>(buffers_[bindingIndex]));

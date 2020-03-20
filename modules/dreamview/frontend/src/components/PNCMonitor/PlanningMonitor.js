@@ -1,7 +1,6 @@
 import React from "react";
 import { inject, observer } from "mobx-react";
 
-import _ from 'lodash';
 import SETTING from "store/config/PlanningGraph.yml";
 import ScatterGraph, { generateScatterGraph } from "components/PNCMonitor/ScatterGraph";
 import PlanningScenarioTable from "components/PNCMonitor/PlanningScenarioTable";
@@ -32,17 +31,26 @@ export default class PlanningMonitor extends React.Component {
     }
 
     render() {
-        const { planningTime, data, chartData, scenarioHistory } = this.props.store.planningData;
+        const { planningTimeSec, data, chartData, scenarioHistory } = this.props.store.planningData;
 
-        if (!planningTime) {
+        if (!planningTimeSec) {
             return null;
         }
+
+        const chartCount = {};
 
         return (
             <div>
                 <PlanningScenarioTable scenarios={scenarioHistory} />
                 {chartData.map(chart => {
-                    return <ScatterGraph key={chart.title}
+                    // Adding count to chart key to prevent duplicate chart title
+                    if (!chartCount[chart.title]) {
+                        chartCount[chart.title] = 1;
+                    } else {
+                        chartCount[chart.title] += 1;
+                    }
+
+                    return <ScatterGraph key={`custom_${chart.title}_${chartCount[chart.title]}`}
                                          title={chart.title}
                                          options={chart.options}
                                          properties={chart.properties}

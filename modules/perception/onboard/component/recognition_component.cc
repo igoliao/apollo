@@ -45,8 +45,8 @@ bool RecognitionComponent::Init() {
 bool RecognitionComponent::Proc(
     const std::shared_ptr<LidarFrameMessage>& message) {
   AINFO << "Enter Tracking component, message timestamp: "
-        << std::to_string(message->timestamp_) << " current timestamp: "
-        << std::to_string(apollo::common::time::Clock::NowInSeconds());
+        << message->timestamp_ << " current timestamp: "
+        << apollo::common::time::Clock::NowInSeconds();
 
   std::shared_ptr<SensorFrameMessage> out_message =
       std::make_shared<SensorFrameMessage>();
@@ -81,6 +81,7 @@ bool RecognitionComponent::InternalProc(
   auto& sensor_name = in_message->lidar_frame_->sensor_info.name;
   PERCEPTION_PERF_FUNCTION_WITH_INDICATOR(sensor_name);
   out_message->timestamp_ = in_message->timestamp_;
+  out_message->lidar_timestamp_ = in_message->lidar_timestamp_;
   out_message->seq_num_ = in_message->seq_num_;
   out_message->process_stage_ = ProcessStage::LIDAR_RECOGNITION;
   out_message->sensor_id_ = sensor_name;
@@ -120,9 +121,8 @@ bool RecognitionComponent::InternalProc(
 
   const double end_timestamp = apollo::common::time::Clock::NowInSeconds();
   const double end_latency = (end_timestamp - in_message->timestamp_) * 1e3;
-  AINFO << "FRAME_STATISTICS:Lidar:End:msg_time["
-        << std::to_string(in_message->timestamp_) << "]:cur_time["
-        << std::to_string(end_timestamp) << "]:cur_latency[" << end_latency
+  AINFO << "FRAME_STATISTICS:Lidar:End:msg_time[" << in_message->timestamp_
+        << "]:cur_time[" << end_timestamp << "]:cur_latency[" << end_latency
         << "]";
   return true;
 }

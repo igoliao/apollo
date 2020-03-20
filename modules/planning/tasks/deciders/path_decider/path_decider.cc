@@ -20,8 +20,6 @@
 
 #include "modules/planning/tasks/deciders/path_decider/path_decider.h"
 
-#include <string>
-
 #include "modules/common/configs/vehicle_config_helper.h"
 #include "modules/common/util/util.h"
 #include "modules/planning/common/planning_context.h"
@@ -47,7 +45,11 @@ Status PathDecider::Execute(Frame *frame,
 Status PathDecider::Process(const ReferenceLineInfo *reference_line_info,
                             const PathData &path_data,
                             PathDecision *const path_decision) {
-  CHECK_NOTNULL(path_decision);
+  // skip path_decider if reused path
+  if (FLAGS_enable_skip_path_tasks && reference_line_info->path_reusable()) {
+    return Status::OK();
+  }
+
   std::string blocking_obstacle_id;
   if (reference_line_info->GetBlockingObstacle() != nullptr) {
     blocking_obstacle_id = reference_line_info->GetBlockingObstacle()->Id();
@@ -62,7 +64,6 @@ Status PathDecider::Process(const ReferenceLineInfo *reference_line_info,
 bool PathDecider::MakeObjectDecision(const PathData &path_data,
                                      const std::string &blocking_obstacle_id,
                                      PathDecision *const path_decision) {
-  DCHECK_NOTNULL(path_decision);
   if (!MakeStaticObstacleDecision(path_data, blocking_obstacle_id,
                                   path_decision)) {
     AERROR << "Failed to make decisions for static obstacles";
@@ -78,7 +79,7 @@ bool PathDecider::MakeStaticObstacleDecision(
     const PathData &path_data, const std::string &blocking_obstacle_id,
     PathDecision *const path_decision) {
   // Sanity checks and get important values.
-  DCHECK_NOTNULL(path_decision);
+  ACHECK(path_decision);
   const auto &frenet_path = path_data.frenet_frame_path();
   if (frenet_path.empty()) {
     AERROR << "Path is empty.";
@@ -88,7 +89,7 @@ bool PathDecider::MakeStaticObstacleDecision(
       common::VehicleConfigHelper::GetConfig().vehicle_param().width() / 2.0;
   const double lateral_radius = half_width + FLAGS_lateral_ignore_buffer;
 
-  // Go through every obstalce and make decisions.
+  // Go through every obstacle and make decisions.
   for (const auto *obstacle : path_decision->obstacles().Items()) {
     const std::string &obstacle_id = obstacle->Id();
     const std::string obstacle_type_name =
@@ -147,7 +148,8 @@ bool PathDecider::MakeStaticObstacleDecision(
     const auto frenet_point = frenet_path.GetNearestPoint(sl_boundary);
     const double curr_l = frenet_point.l();
     double min_nudge_l =
-        half_width + FLAGS_static_obstacle_nudge_l_buffer / 2.0;
+        half_width +
+        config_.path_decider_config().static_obstacle_buffer() / 2.0;
 
     if (curr_l - lateral_radius > sl_boundary.end_l() ||
         curr_l + lateral_radius < sl_boundary.start_l()) {
@@ -171,14 +173,15 @@ bool PathDecider::MakeStaticObstacleDecision(
         path_decision->AddLongitudinalDecision("PathDecider/not-nearest-stop",
                                                obstacle->Id(), object_decision);
       }
-    } else if (FLAGS_enable_nudge_decision) {
+    } else {
       // 3. NUDGE if laterally very close.
       if (sl_boundary.end_l() < curr_l - min_nudge_l) {  // &&
         // sl_boundary.end_l() > curr_l - min_nudge_l - 0.3) {
         // LEFT_NUDGE
         ObjectNudge *object_nudge_ptr = object_decision.mutable_nudge();
         object_nudge_ptr->set_type(ObjectNudge::LEFT_NUDGE);
-        object_nudge_ptr->set_distance_l(FLAGS_static_obstacle_nudge_l_buffer);
+        object_nudge_ptr->set_distance_l(
+            config_.path_decider_config().static_obstacle_buffer());
         path_decision->AddLateralDecision("PathDecider/left-nudge",
                                           obstacle->Id(), object_decision);
       } else if (sl_boundary.start_l() > curr_l + min_nudge_l) {  // &&
@@ -186,7 +189,8 @@ bool PathDecider::MakeStaticObstacleDecision(
         // RIGHT_NUDGE
         ObjectNudge *object_nudge_ptr = object_decision.mutable_nudge();
         object_nudge_ptr->set_type(ObjectNudge::RIGHT_NUDGE);
-        object_nudge_ptr->set_distance_l(-FLAGS_static_obstacle_nudge_l_buffer);
+        object_nudge_ptr->set_distance_l(
+            -config_.path_decider_config().static_obstacle_buffer());
         path_decision->AddLateralDecision("PathDecider/right-nudge",
                                           obstacle->Id(), object_decision);
       }

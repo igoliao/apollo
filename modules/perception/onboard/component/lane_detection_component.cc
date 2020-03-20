@@ -15,9 +15,6 @@
  *****************************************************************************/
 #include "modules/perception/onboard/component/lane_detection_component.h"
 
-#include <yaml-cpp/yaml.h>
-#include <Eigen/Core>
-#include <Eigen/Dense>
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
 
@@ -26,6 +23,11 @@
 #include <iostream>
 #include <string>
 #include <tuple>
+
+#include "Eigen/Core"
+#include "Eigen/Dense"
+#include "absl/strings/str_cat.h"
+#include "yaml-cpp/yaml.h"
 
 #include "cyber/common/file.h"
 #include "cyber/common/log.h"
@@ -209,7 +211,7 @@ bool LaneDetectionComponent::Init() {
                  &ex_lidar2imu);
   AINFO << "velodyne128_novatel_extrinsics: " << ex_lidar2imu;
 
-  CHECK(visualize_.Init_all_info_single_camera(
+  ACHECK(visualize_.Init_all_info_single_camera(
       camera_names_, visual_camera_, intrinsic_map_, extrinsic_map_,
       ex_lidar2imu, pitch_adj_degree, yaw_adj_degree, roll_adj_degree,
       image_height_, image_width_));
@@ -272,9 +274,8 @@ void LaneDetectionComponent::OnReceiveImage(
     const std::string &camera_name) {
   std::lock_guard<std::mutex> lock(mutex_);
   const double msg_timestamp = message->measurement_time() + timestamp_offset_;
-  AINFO << "Enter LaneDetectionComponent::Proc(), "
-        << " camera_name: " << camera_name
-        << " image ts: " + std::to_string(msg_timestamp);
+  AINFO << "Enter LaneDetectionComponent::Proc(), camera_name: " << camera_name
+        << " image ts: " << msg_timestamp;
   // timestamp should be almost monotonic
   if (last_timestamp_ - msg_timestamp > ts_diff_) {
     AINFO << "Received an old message. Last ts is " << std::setprecision(19)
@@ -595,9 +596,9 @@ int LaneDetectionComponent::InternalProc(
   Eigen::Affine3d camera2world_trans;
   if (!camera2world_trans_wrapper_map_[camera_name]->GetSensor2worldTrans(
           msg_timestamp, &camera2world_trans)) {
-    std::string err_str = "failed to get camera to world pose, ts: " +
-                          std::to_string(msg_timestamp) +
-                          " camera_name: " + camera_name;
+    const std::string err_str =
+        absl::StrCat("failed to get camera to world pose, ts: ", msg_timestamp,
+                     " camera_name: ", camera_name);
     AERROR << err_str;
     *error_code = apollo::common::ErrorCode::PERCEPTION_ERROR_TF;
     prefused_message->error_code_ = *error_code;
@@ -631,8 +632,8 @@ int LaneDetectionComponent::InternalProc(
 
   if (!camera_lane_pipeline_->Perception(camera_perception_options_,
                                          &camera_frame)) {
-    AERROR << "camera_lane_pipeline_->Perception() failed"
-           << " msg_timestamp: " << std::to_string(msg_timestamp);
+    AERROR << "camera_lane_pipeline_->Perception() failed msg_timestamp: "
+           << msg_timestamp;
     *error_code = apollo::common::ErrorCode::PERCEPTION_ERROR_PROCESS;
     prefused_message->error_code_ = *error_code;
     return cyber::FAIL;

@@ -14,10 +14,10 @@
  * limitations under the License.
  *****************************************************************************/
 
-#include <gtest/gtest.h>
 #include <unistd.h>
 #include <atomic>
 #include <string>
+#include "gtest/gtest.h"
 
 #include "cyber/record/file/record_file_base.h"
 #include "cyber/record/file/record_file_reader.h"
@@ -27,6 +27,13 @@
 namespace apollo {
 namespace cyber {
 namespace record {
+
+using apollo::cyber::proto::Channel;
+using apollo::cyber::proto::ChunkBody;
+using apollo::cyber::proto::ChunkHeader;
+using apollo::cyber::proto::Header;
+using apollo::cyber::proto::SectionType;
+using apollo::cyber::proto::SingleMessage;
 
 constexpr char kChan1[] = "/test1";
 constexpr char kChan2[] = "/test2";
@@ -283,7 +290,7 @@ TEST(RecordFileTest, TestIndex) {
       // Find index at position
       if (section.type != SectionType::SECTION_INDEX) {
         bool found = false;
-        SingleIndex match;
+        proto::SingleIndex match;
         for (const auto& row : index.indexes()) {
           if (row.position() == pos) {
             match = row;

@@ -23,20 +23,30 @@
 namespace apollo {
 namespace planning {
 
-using apollo::common::Status;
-
-// TODO(jiacheng): implement this.
-STGuideLine::STGuideLine() {}
-
-// TODO(jiacheng): implement this.
-Status STGuideLine::ComputeSTGuideLine() {
-  return Status::OK();
+void STGuideLine::Init(double desired_v) {
+  s0_ = 0.0;
+  t0_ = 0.0;
+  v0_ = desired_v;
 }
 
-// TODO(jiacheng): implement this.
-double STGuideLine::GetGuideSFromT(double t) {
-  return 0.0;
+double STGuideLine::GetGuideSFromT(double t) const {
+  return s0_ + (t - t0_) * v0_;
 }
 
+void STGuideLine::UpdateBlockingInfo(const double t, const double s_block,
+                                     const bool is_lower_block) {
+  if (is_lower_block) {
+    if (GetGuideSFromT(t) < s_block) {
+      s0_ = s_block;
+      t0_ = t;
+    }
+  } else {
+    if (GetGuideSFromT(t) > s_block) {
+      s0_ = s_block;
+      t0_ = t;
+    }
+  }
 }
-}
+
+}  // namespace planning
+}  // namespace apollo

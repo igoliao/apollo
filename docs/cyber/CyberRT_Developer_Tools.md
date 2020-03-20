@@ -49,7 +49,7 @@ As shown in figure below, three cameras' channel data on the button sections and
 
    Place the mouse on the image of the camera channel, you can double-click the left button to highlight the corresponding data channel on the left menu bar. Right click on the image to bring up menu for deleting the camera channel.
 
-   Play and Pause buttons: when clicking the `Play` button, all channels will be showed. While when clicking the `Pause` button, all channels will stop showing on the tool.
+   Play and Pause buttons: when clicking the `Play` button, all channels will be shown. While when clicking the `Pause` button, all channels will stop showing on the tool.
 
 ## Cyber_monitor
 
@@ -202,9 +202,12 @@ usage: cyber_recorder split [options]
     -f, --file <file>                  input record file
     -o, --output <file>                output record file
     -a, --all                          all channels
-    -c, --channel <name>               channel name
+    -c, --white-channel <name>         only split the specified channel
+    -k, --black-channel <name>         not split the specified channel
     -b, --begin <2018-07-01 00:00:00>  begin at assigned time
+                                       (in the form of String, e.g. "2018-07-01 00:00:00")
     -e, --end <2018-07-01 01:00:00>    end at assigned time
+                                       (in the form of String, e.g. "2018-07-01 00:00:00")
 ```
 
 - To repair a record file:

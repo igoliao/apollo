@@ -17,7 +17,6 @@
 #pragma once
 
 #include <memory>
-#include <set>
 #include <unordered_map>
 
 #include "modules/planning/proto/planning_config.pb.h"
@@ -50,12 +49,9 @@ class ScenarioManager final {
   ScenarioConfig::ScenarioType SelectBareIntersectionScenario(
       const Frame& frame, const hdmap::PathOverlap& pnc_junction_overlap);
 
-  ScenarioConfig::ScenarioType SelectChangeLaneScenario(const Frame& frame);
-
   ScenarioConfig::ScenarioType SelectPullOverScenario(const Frame& frame);
 
-  ScenarioConfig::ScenarioType SelectPullOverEmergencyScenario(
-      const Frame& frame);
+  ScenarioConfig::ScenarioType SelectPadMsgScenario(const Frame& frame);
 
   ScenarioConfig::ScenarioType SelectInterceptionScenario(const Frame& frame);
 
@@ -88,6 +84,12 @@ class ScenarioManager final {
   void UpdatePlanningContextBareIntersectionScenario(
       const Frame& frame, const ScenarioConfig::ScenarioType& scenario_type);
 
+  void UpdatePlanningContextEmergencyStopcenario(
+      const Frame& frame, const ScenarioConfig::ScenarioType& scenario_type);
+
+  void UpdatePlanningContextPullOverScenario(
+      const Frame& frame, const ScenarioConfig::ScenarioType& scenario_type);
+
   void UpdatePlanningContextStopSignScenario(
       const Frame& frame, const ScenarioConfig::ScenarioType& scenario_type);
 
@@ -97,11 +99,7 @@ class ScenarioManager final {
   void UpdatePlanningContextYieldSignScenario(
       const Frame& frame, const ScenarioConfig::ScenarioType& scenario_type);
 
-  void UpdatePlanningContextPullOverScenario(
-      const Frame& frame, const ScenarioConfig::ScenarioType& scenario_type);
-
  private:
-  static bool emergency_vehicle_alert_;
   std::unordered_map<ScenarioConfig::ScenarioType, ScenarioConfig,
                      std::hash<int>>
       config_map_;

@@ -22,7 +22,6 @@
 
 #include <algorithm>
 #include <limits>
-#include <unordered_map>
 #include <utility>
 
 #include "modules/common/proto/pnc_point.pb.h"
@@ -36,6 +35,7 @@
 #include "modules/common/util/util.h"
 #include "modules/common/vehicle_state/vehicle_state_provider.h"
 #include "modules/planning/common/frame.h"
+#include "modules/planning/common/planning_context.h"
 #include "modules/planning/common/planning_gflags.h"
 
 namespace apollo {
@@ -76,7 +76,7 @@ Status STBoundaryMapper::ComputeSTBoundary(PathDecision* path_decision) const {
   double min_stop_s = std::numeric_limits<double>::max();
   for (const auto* ptr_obstacle_item : path_decision->obstacles().Items()) {
     Obstacle* ptr_obstacle = path_decision->Find(ptr_obstacle_item->Id());
-    CHECK(ptr_obstacle != nullptr);
+    ACHECK(ptr_obstacle != nullptr);
 
     // If no longitudinal decision has been made, then plot it onto ST-graph.
     if (!ptr_obstacle->HasLongitudinalDecision()) {
@@ -160,6 +160,9 @@ bool STBoundaryMapper::MapStopDecision(
 }
 
 void STBoundaryMapper::ComputeSTBoundary(Obstacle* obstacle) const {
+  if (FLAGS_use_st_drivable_boundary) {
+    return;
+  }
   std::vector<STPoint> lower_points;
   std::vector<STPoint> upper_points;
 
@@ -188,8 +191,6 @@ bool STBoundaryMapper::GetOverlapBoundaryPoints(
     std::vector<STPoint>* upper_points,
     std::vector<STPoint>* lower_points) const {
   // Sanity checks.
-  DCHECK_NOTNULL(upper_points);
-  DCHECK_NOTNULL(lower_points);
   DCHECK(upper_points->empty());
   DCHECK(lower_points->empty());
   DCHECK_GT(path_points.size(), 0);
@@ -198,9 +199,18 @@ bool STBoundaryMapper::GetOverlapBoundaryPoints(
     return false;
   }
 
+  const auto* planning_status = PlanningContext::Instance()
+                                    ->mutable_planning_status()
+                                    ->mutable_change_lane();
+
+  double l_buffer =
+      planning_status->status() == ChangeLaneStatus::IN_CHANGE_LANE
+          ? FLAGS_lane_change_obstacle_nudge_l_buffer
+          : FLAGS_nonstatic_obstacle_nudge_l_buffer;
+
   // Draw the given obstacle on the ST-graph.
   const auto& trajectory = obstacle.Trajectory();
-  if (trajectory.trajectory_point_size() == 0) {
+  if (trajectory.trajectory_point().empty()) {
     // For those with no predicted trajectories, just map the obstacle's
     // current position to ST-graph and always assume it's static.
     if (!obstacle.IsStatic()) {
@@ -214,8 +224,7 @@ bool STBoundaryMapper::GetOverlapBoundaryPoints(
       }
 
       const Box2d& obs_box = obstacle.PerceptionBoundingBox();
-      if (CheckOverlap(curr_point_on_path, obs_box,
-                       FLAGS_nonstatic_obstacle_nudge_l_buffer)) {
+      if (CheckOverlap(curr_point_on_path, obs_box, l_buffer)) {
         // If there is overlapping, then plot it on ST-graph.
         const double backward_distance = -vehicle_param_.front_edge_to_center();
         const double forward_distance = obs_box.length();
@@ -256,7 +265,7 @@ bool STBoundaryMapper::GetOverlapBoundaryPoints(
       const Box2d obs_box = obstacle.GetBoundingBox(trajectory_point);
 
       double trajectory_point_time = trajectory_point.relative_time();
-      constexpr double kNegtiveTimeThreshold = -1.0;
+      static constexpr double kNegtiveTimeThreshold = -1.0;
       if (trajectory_point_time < kNegtiveTimeThreshold) {
         continue;
       }
@@ -268,8 +277,7 @@ bool STBoundaryMapper::GetOverlapBoundaryPoints(
       for (double path_s = 0.0; path_s < path_len; path_s += step_length) {
         const auto curr_adc_path_point =
             discretized_path.Evaluate(path_s + discretized_path.front().s());
-        if (CheckOverlap(curr_adc_path_point, obs_box,
-                         FLAGS_nonstatic_obstacle_nudge_l_buffer)) {
+        if (CheckOverlap(curr_adc_path_point, obs_box, l_buffer)) {
           // Found overlap, start searching with higher resolution
           const double backward_distance = -step_length;
           const double forward_distance = vehicle_param_.length() +
@@ -294,8 +302,7 @@ bool STBoundaryMapper::GetOverlapBoundaryPoints(
             if (!find_low) {
               const auto& point_low = discretized_path.Evaluate(
                   low_s + discretized_path.front().s());
-              if (!CheckOverlap(point_low, obs_box,
-                                FLAGS_nonstatic_obstacle_nudge_l_buffer)) {
+              if (!CheckOverlap(point_low, obs_box, l_buffer)) {
                 low_s += fine_tuning_step_length;
               } else {
                 find_low = true;
@@ -304,8 +311,7 @@ bool STBoundaryMapper::GetOverlapBoundaryPoints(
             if (!find_high) {
               const auto& point_high = discretized_path.Evaluate(
                   high_s + discretized_path.front().s());
-              if (!CheckOverlap(point_high, obs_box,
-                                FLAGS_nonstatic_obstacle_nudge_l_buffer)) {
+              if (!CheckOverlap(point_high, obs_box, l_buffer)) {
                 high_s -= fine_tuning_step_length;
               } else {
                 find_high = true;
@@ -341,21 +347,16 @@ void STBoundaryMapper::ComputeSTBoundaryWithDecision(
   std::vector<STPoint> lower_points;
   std::vector<STPoint> upper_points;
 
-  if (!GetOverlapBoundaryPoints(path_data_.discretized_path(), *obstacle,
-                                &upper_points, &lower_points)) {
-    return;
-  }
-
-  if (decision.has_follow() && lower_points.back().t() < planning_max_time_) {
-    const double diff_s = lower_points.back().s() - lower_points.front().s();
-    const double diff_t = lower_points.back().t() - lower_points.front().t();
-    double extend_lower_s =
-        diff_s / diff_t * (planning_max_time_ - lower_points.front().t()) +
-        lower_points.front().s();
-    const double extend_upper_s =
-        extend_lower_s + (upper_points.back().s() - lower_points.back().s());
-    upper_points.emplace_back(extend_upper_s, planning_max_time_);
-    lower_points.emplace_back(extend_lower_s, planning_max_time_);
+  if (FLAGS_use_st_drivable_boundary &&
+      obstacle->is_path_st_boundary_initialized()) {
+    const auto& path_st_boundary = obstacle->path_st_boundary();
+    lower_points = path_st_boundary.lower_points();
+    upper_points = path_st_boundary.upper_points();
+  } else {
+    if (!GetOverlapBoundaryPoints(path_data_.discretized_path(), *obstacle,
+                                  &upper_points, &lower_points)) {
+      return;
+    }
   }
 
   auto boundary = STBoundary::CreateInstance(lower_points, upper_points);

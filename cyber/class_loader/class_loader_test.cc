@@ -15,11 +15,13 @@
  *****************************************************************************/
 #include "cyber/class_loader/class_loader.h"
 
-#include <gtest/gtest.h>
 #include <iostream>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "gtest/gtest.h"
+
 #include "cyber/class_loader/class_loader_manager.h"
 #include "cyber/class_loader/test/base.h"
 #include "cyber/cyber.h"
@@ -36,7 +38,7 @@ TEST(ClassLoaderTest, createClassObj) {
   ClassLoader loader1(LIBRARY_1);
   EXPECT_EQ(LIBRARY_1, loader1.GetLibraryPath());
   auto rect_obj = loader1.CreateClassObj<Base>("Rect");
-  EXPECT_TRUE(nullptr != rect_obj);
+  EXPECT_NE(nullptr, rect_obj);
   rect_obj->DoSomething();
   EXPECT_EQ(nullptr, loader1.CreateClassObj<Base>("Xeee"));
 
@@ -80,8 +82,6 @@ TEST(ClassLoaderTest, multiTimesLoadunload) {
   ASSERT_TRUE(IsLibraryLoadedByAnybody(LIBRARY_1));
   loader1.UnloadLibrary();
   ASSERT_FALSE(IsLibraryLoadedByAnybody(LIBRARY_1));
-
-  return;
 }
 
 TEST(ClassLoaderManagerTest, testClassLoaderManager) {
@@ -95,13 +95,13 @@ TEST(ClassLoaderManagerTest, testClassLoaderManager) {
   }
 
   auto pear_obj = loader_mgr.CreateClassObj<Base>("Pear", LIBRARY_2);
-  EXPECT_TRUE(nullptr != pear_obj);
+  EXPECT_NE(nullptr, pear_obj);
   pear_obj->DoSomething();
 
   auto null_obj = loader_mgr.CreateClassObj<Base>("Pear", LIBRARY_1);
-  EXPECT_TRUE(nullptr == null_obj);
+  EXPECT_EQ(nullptr, null_obj);
   auto null_obj1 = loader_mgr.CreateClassObj<Base>("ClassNull", "libNull.so");
-  EXPECT_TRUE(nullptr == null_obj1);
+  EXPECT_EQ(nullptr, null_obj1);
 
   EXPECT_TRUE(loader_mgr.IsClassValid<Base>("Rect"));
   EXPECT_TRUE(loader_mgr.IsClassValid<Base>("Circle"));
@@ -185,5 +185,7 @@ TEST(ClassLoaderTest, util_test) {
 int main(int argc, char** argv) {
   apollo::cyber::Init(argv[0]);
   testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+  const int output = RUN_ALL_TESTS();
+  google::protobuf::ShutdownProtobufLibrary();
+  return output;
 }

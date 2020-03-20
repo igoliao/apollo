@@ -16,8 +16,9 @@
 
 #include "cyber/sysmo/sysmo.h"
 
-#include <gtest/gtest.h>
-#include <stdlib.h>
+#include <cstdlib>
+#include <thread>
+#include "gtest/gtest.h"
 
 #include "cyber/common/environment.h"
 #include "cyber/scheduler/scheduler_factory.h"
@@ -33,7 +34,7 @@ TEST(SysMoTest, cases) {
   auto sysmo_start = GetEnv("sysmo_start");
   EXPECT_EQ(sysmo_start, "1");
   auto sysmo = SysMo::Instance();
-  usleep(300000);
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
   sysmo->Shutdown();
   sched->Shutdown();
 }

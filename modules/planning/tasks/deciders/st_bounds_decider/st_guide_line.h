@@ -20,9 +20,6 @@
 
 #pragma once
 
-#include <string>
-#include <vector>
-
 #include "modules/common/configs/proto/vehicle_config.pb.h"
 #include "modules/planning/proto/speed_bounds_decider_config.pb.h"
 
@@ -37,17 +34,30 @@
 namespace apollo {
 namespace planning {
 
+// TODO(jiacheng): currently implemented a constant velocity model for
+// guide-line. Upgrade it to a constant acceleration model.
 class STGuideLine {
  public:
-  STGuideLine();
+  STGuideLine() {}
+
+  void Init(double desired_v);
 
   virtual ~STGuideLine() = default;
 
-  common::Status ComputeSTGuideLine();
-
   double GetGuideSFromT(double t) const;
 
+  void UpdateBlockingInfo(const double t, const double s_block,
+                          const bool is_lower_block);
+
  private:
-  double t_resolution_;
-  std::vector<std::pair<double, double>> guide_line_t_s_;
+  // Variables for simple guide-line calculation.
+  double t0_;
+  double s0_;
+  double v0_;
+  // double max_acc_;
+  // double max_dec_;
+  // double max_v_;
 };
+
+}  // namespace planning
+}  // namespace apollo

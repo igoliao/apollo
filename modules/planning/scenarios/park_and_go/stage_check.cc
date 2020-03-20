@@ -16,9 +16,6 @@
 
 #include "modules/planning/scenarios/park_and_go/stage_check.h"
 
-#include <string>
-#include <vector>
-
 namespace apollo {
 namespace planning {
 namespace scenario {
@@ -32,7 +29,13 @@ Stage::StageStatus ParkAndGoStageCheck::Process(
   CHECK_NOTNULL(frame);
 
   scenario_config_.CopyFrom(GetContext()->scenario_config);
-  ADCInitStatus(frame);
+  ADCInitStatus();
+  frame->mutable_open_space_info()->set_is_on_open_space_trajectory(true);
+  bool plan_ok = ExecuteTaskOnOpenSpace(frame);
+  if (!plan_ok) {
+    AERROR << "ParkAndGoStageAdjust planning error";
+    return StageStatus::ERROR;
+  }
 
   bool ready_to_cruise =
       scenario::util::CheckADCReadyToCruise(frame, scenario_config_);
@@ -45,10 +48,14 @@ Stage::StageStatus ParkAndGoStageCheck::FinishStage(const bool success) {
   } else {
     next_stage_ = ScenarioConfig::PARK_AND_GO_ADJUST;
   }
+  PlanningContext::Instance()
+      ->mutable_planning_status()
+      ->mutable_park_and_go()
+      ->set_in_check_stage(false);
   return Stage::FINISHED;
 }
 
-void ParkAndGoStageCheck::ADCInitStatus(Frame* frame) {
+void ParkAndGoStageCheck::ADCInitStatus() {
   auto* park_and_go_status = PlanningContext::Instance()
                                  ->mutable_planning_status()
                                  ->mutable_park_and_go();
@@ -60,6 +67,7 @@ void ParkAndGoStageCheck::ADCInitStatus(Frame* frame) {
   park_and_go_status->mutable_adc_init_position()->set_z(0.0);
   park_and_go_status->set_adc_init_heading(
       common::VehicleStateProvider::Instance()->heading());
+  park_and_go_status->set_in_check_stage(true);
 }
 
 }  // namespace park_and_go
